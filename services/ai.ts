@@ -9,8 +9,8 @@ const getEnv = (key: string, fallback: string) => {
   }
 };
 
-// Use OpenRouter API Key
-const OPENROUTER_API_KEY = getEnv('OPENROUTER_API_KEY', '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');
+// Use the provided OpenRouter API Key
+const OPENROUTER_API_KEY = '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';
 const SITE_URL = 'https://forge.ai';
 const SITE_NAME = 'FORGE AI';
 

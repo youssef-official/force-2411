@@ -66,12 +66,16 @@ export default function Workspace() {
         let readmeContent = '';
         const readme = files.find(f => f.name.toLowerCase() === 'readme.md');
         if (readme) {
-          const result = await fetchFileRaw(token, decodedRepoName, readme.path);
-          readmeContent = result.content;
-          // Set as active file initially
-          setActiveFile(readme);
-          setActiveFileContent(result.content);
-          setActiveFileSha(result.sha);
+          try {
+             const result = await fetchFileRaw(token, decodedRepoName, readme.path);
+             readmeContent = result.content;
+             // Set as active file initially
+             setActiveFile(readme);
+             setActiveFileContent(result.content);
+             setActiveFileSha(result.sha);
+          } catch(err) {
+             console.warn("Could not load README content", err);
+          }
         }
 
         setRepoContext(`Repo: ${decodedRepoName}\nFiles:\n${fileList}\nREADME:\n${readmeContent.substring(0, 1000)}...`);
@@ -95,7 +99,9 @@ export default function Workspace() {
         setActiveFileContent(content);
         setActiveFileSha(sha);
     } catch (e) {
-        setActiveFileContent('Error loading file content.');
+        console.error(e);
+        setActiveFileContent('Error loading file content. It might be binary or too large.');
+        setActiveFileSha('');
     } finally {
         setIsLoadingFile(false);
     }
@@ -128,8 +134,8 @@ export default function Workspace() {
     // Switch to the relevant file if found in list
     const targetFile = repoFiles.find(f => f.path === step.file_path);
     let currentCode = '';
-    let sha = '';
-
+    
+    // If the file exists, we need its content AND its sha for future updates
     if (targetFile) {
         setActiveFile(targetFile);
         setIsLoadingFile(true);
@@ -137,17 +143,13 @@ export default function Workspace() {
             const token = localStorage.getItem('gh_token') || '';
             const res = await fetchFileRaw(token, decodeURIComponent(repoId || ''), targetFile.path);
             currentCode = res.content;
-            sha = res.sha;
             setActiveFileContent(currentCode);
-            setActiveFileSha(sha);
+            setActiveFileSha(res.sha);
         } catch (e) {
             console.error(e);
         } finally {
             setIsLoadingFile(false);
         }
-    } else {
-        // If file doesn't exist, we assume creating (currentCode empty)
-        // But for this MVP we focus on updates primarily or creating at root
     }
 
     try {
@@ -167,7 +169,7 @@ export default function Workspace() {
     setIsCommitting(true);
     const token = localStorage.getItem('gh_token') || '';
     
-    const success = await commitFile(
+    const result = await commitFile(
         token, 
         decodeURIComponent(repoId), 
         activeFile.path, 
@@ -176,13 +178,17 @@ export default function Workspace() {
         activeFileSha
     );
 
-    if (success) {
+    if (result.success) {
         setActiveFileContent(proposedContent);
         setProposedContent(null);
-        // Refresh SHA potentially needed here but simple update works
+        // CRITICAL: Update the SHA to the new one returned by GitHub
+        // Otherwise the next commit will fail with 409 Conflict
+        if (result.newSha) {
+            setActiveFileSha(result.newSha);
+        }
         alert("Changes committed successfully!");
     } else {
-        alert("Failed to commit changes.");
+        alert("Failed to commit changes. Check permissions or try refreshing.");
     }
     setIsCommitting(false);
   };

@@ -63,17 +63,26 @@ export const fetchFileRaw = async (token: string, fullName: string, path: string
   const res = await fetch(`${API_BASE}/repos/${fullName}/contents/${path}`, {
     headers: {
       Authorization: `token ${token}`,
-      Accept: 'application/vnd.github.v3+json', // Get JSON to extract SHA and Content
+      Accept: 'application/vnd.github.v3+json',
     },
   });
   
   if (!res.ok) throw new Error('Failed to fetch file');
   
-  const data = await res.json();
-  // Content is base64 encoded
-  const content = atob(data.content.replace(/\n/g, ''));
-  
-  return { content, sha: data.sha };
+  // Check if response is actually JSON
+  const contentType = res.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+      const data = await res.json();
+      // Content is base64 encoded in the JSON response
+      if (data.content && data.encoding === 'base64') {
+          const content = atob(data.content.replace(/\n/g, ''));
+          return { content, sha: data.sha };
+      }
+      // Handle edge case where API returns something else
+      throw new Error("Invalid file format from GitHub");
+  } else {
+      throw new Error("GitHub API returned non-JSON response");
+  }
 };
 
 export const commitFile = async (
@@ -83,7 +92,7 @@ export const commitFile = async (
   content: string, 
   message: string, 
   sha?: string
-): Promise<boolean> => {
+): Promise<{ success: boolean; newSha?: string }> => {
   try {
     // Convert content to base64
     const contentBase64 = btoa(unescape(encodeURIComponent(content))); // utf-8 safe base64
@@ -110,12 +119,14 @@ export const commitFile = async (
     if (!res.ok) {
       const err = await res.text();
       console.error("Commit failed", err);
-      return false;
+      return { success: false };
     }
 
-    return true;
+    const data = await res.json();
+    // Return the new SHA so the frontend can stay in sync
+    return { success: true, newSha: data.content?.sha };
   } catch (e) {
     console.error(e);
-    return false;
+    return { success: false };
   }
 };

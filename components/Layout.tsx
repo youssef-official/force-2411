@@ -48,7 +48,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
         className={`
           fixed inset-y-0 left-0 z-40 w-72 bg-[#0c0c0c] border-r border-[#27272a] flex flex-col transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-          md:relative md:translate-x-0 md:h-full
+          md:relative md:translate-x-0 md:flex-shrink-0 h-full
         `}
       >
         

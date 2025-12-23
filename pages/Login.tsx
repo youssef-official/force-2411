@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Github, Loader2, Mail, Lock, ArrowRight } from 'lucide-react';
@@ -54,13 +53,6 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDevLogin = async () => {
-    setLoading(true);
-    setTimeout(() => {
-        navigate('/'); 
-    }, 1500);
   };
 
   return (
@@ -153,12 +145,6 @@ export default function Login() {
                     {mode === 'signin' ? "Create an account" : "Sign in to existing account"}
                 </button>
             </div>
-        </div>
-
-        <div className="mt-8 text-center">
-             <button onClick={handleDevLogin} className="text-[10px] text-gray-700 hover:text-gray-500">
-                Skip Login (Dev)
-             </button>
         </div>
       </motion.div>
     </div>
