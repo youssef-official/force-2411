@@ -13,11 +13,12 @@ const getEnv = (key: string, fallback: string) => {
 const SITE_URL = 'https://force-2411.vercel.app';
 const SITE_NAME = 'FORGE AI';
 
+// Default Credentials (Fallback)
+const DEFAULT_KEY = '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';
+
 // Models
-// Using reliable free models. 
-// Note: If the specific 'devstral' model is unavailable, we fallback to a standard free mistral model in logic if needed, 
-// but sticking to user request for now.
-const PLANNING_MODEL = 'mistralai/mistral-7b-instruct:free'; // Switched to a more stable free model alias if devstral fails
+// Using reliable free models as requested, with fallbacks if specific ones aren't available.
+const PLANNING_MODEL = 'mistralai/mistral-7b-instruct:free'; 
 const CODING_MODEL = 'openai/gpt-oss-120b:free'; 
 
 export const generatePlan = async (description: string, repoContext: string): Promise<string> => {
@@ -72,8 +73,13 @@ export const executeStep = async (stepDescription: string, currentCode: string):
 };
 
 async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<string> {
-  // Retrieve API Key from Local Storage dynamically
-  const apiKey = localStorage.getItem('openrouter_key');
+  // Retrieve API Key from Local Storage or use default
+  let apiKey = localStorage.getItem('openrouter_key');
+  
+  // Use fallback if local storage is empty or whitespace
+  if (!apiKey || !apiKey.trim()) {
+    apiKey = DEFAULT_KEY;
+  }
 
   if (!apiKey) {
      console.error("OpenRouter API Key is missing.");

@@ -9,6 +9,8 @@ interface LayoutProps {
   title?: string;
 }
 
+const DEFAULT_KEY = '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';
+
 export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
   const navigate = useNavigate();
   const [isGithubConnected, setIsGithubConnected] = useState(false);
@@ -24,7 +26,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
      setIsGithubConnected(!!ghToken);
      
      const orKey = localStorage.getItem('openrouter_key');
-     if (orKey) setOpenRouterKey(orKey);
+     if (orKey) {
+         setOpenRouterKey(orKey);
+     } else {
+         // Initialize with default key so user sees it in settings
+         setOpenRouterKey(DEFAULT_KEY);
+     }
 
      // Auto-close sidebar on mobile
      if (window.innerWidth < 768) {
@@ -78,11 +85,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                         <div className="relative">
                             <Key className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
                             <input 
-                                type="password" 
+                                type="text" 
                                 value={openRouterKey}
                                 onChange={(e) => setOpenRouterKey(e.target.value)}
                                 placeholder="sk-or-v1-..."
-                                className="w-full bg-[#09090b] border border-[#27272a] rounded-lg py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-forge-500 transition-colors"
+                                className="w-full bg-[#09090b] border border-[#27272a] rounded-lg py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-forge-500 transition-colors font-mono"
                             />
                         </div>
                         <p className="text-xs text-gray-500">
