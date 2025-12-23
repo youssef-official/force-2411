@@ -1,8 +1,17 @@
 import { ChatMessage, AIModel } from '../types';
 
+// Safe environment variable retrieval
+const getEnv = (key: string, fallback: string) => {
+  try {
+    return (typeof process !== 'undefined' && process.env && process.env[key]) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 // Fallback value for demo environment
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
-const SITE_URL = 'http://localhost:3000'; // Replace with actual site URL
+const OPENROUTER_API_KEY = getEnv('OPENROUTER_API_KEY', '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');
+const SITE_URL = 'http://localhost:3000';
 const SITE_NAME = 'FORGE AI';
 
 export const generatePlan = async (description: string, repoContext: string): Promise<string> => {
@@ -59,7 +68,6 @@ export const executeStep = async (stepDescription: string, currentCode: string):
 async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<string> {
   if (!OPENROUTER_API_KEY) {
      console.error("OpenRouter API Key is missing. Please check your configuration.");
-     // Return a mock response or throw depending on desired behavior, throwing for now to be explicit
      throw new Error("OpenRouter API Key is missing.");
   }
 
@@ -75,7 +83,7 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
       body: JSON.stringify({
         "model": model,
         "messages": messages,
-        "temperature": 0.2, // Lower temp for code
+        "temperature": 0.2, 
       })
     });
 

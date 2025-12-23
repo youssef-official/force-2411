@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { generatePlan, executeStep } from '../services/ai';
-import { fetchRepoContents, fetchFileRaw } from '../services/github';
+import { fetchRepoContents, fetchFileRaw, GitHubFile } from '../services/github';
 import { PlanStep } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -20,7 +19,8 @@ import {
   ChevronDown,
   ArrowUp,
   Image as ImageIcon,
-  FolderOpen
+  FolderOpen,
+  FileText
 } from 'lucide-react';
 
 export default function Workspace() {
@@ -34,16 +34,20 @@ export default function Workspace() {
   const [executionLog, setExecutionLog] = useState<string[]>([]);
   const [diff, setDiff] = useState<string | null>(null);
   const [repoContext, setRepoContext] = useState<string>('');
-  const [loadingContext, setLoadingContext] = useState(true);
+  
+  // Real File System State
+  const [repoFiles, setRepoFiles] = useState<GitHubFile[]>([]);
+  const [activeFile, setActiveFile] = useState<GitHubFile | null>(null);
+  const [activeFileContent, setActiveFileContent] = useState<string>('');
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
 
-  // Load Repo Context
+  // Load Repo Context & Files
   useEffect(() => {
     const loadContext = async () => {
       const token = localStorage.getItem('gh_token');
       if (!token || !repoId) {
         setExecutionLog(prev => [...prev, "⚠ No GitHub token or Repo ID found."]);
         setRepoContext("// Context unavailable");
-        setLoadingContext(false);
         return;
       }
 
@@ -51,22 +55,57 @@ export default function Workspace() {
 
       try {
         setExecutionLog(prev => [...prev, `🔍 Reading: ${decodedRepoName}`]);
+        
+        // Fetch root files
         const files = await fetchRepoContents(token, decodedRepoName, '');
+        // Sort: folders first, then files
+        const sortedFiles = files.sort((a, b) => {
+            if (a.type === b.type) return a.name.localeCompare(b.name);
+            return a.type === 'dir' ? -1 : 1;
+        });
+        setRepoFiles(sortedFiles);
+
         const fileList = files.map(f => `- ${f.path} (${f.type})`).join('\n');
+        
+        // Try to fetch README for context
         let readmeContent = '';
         const readme = files.find(f => f.name.toLowerCase() === 'readme.md');
         if (readme) {
           readmeContent = await fetchFileRaw(token, decodedRepoName, readme.path);
+          // Set as active file initially if exists
+          setActiveFile(readme);
+          setActiveFileContent(readmeContent);
         }
+
         setRepoContext(`Repo: ${decodedRepoName}\nFiles:\n${fileList}\nREADME:\n${readmeContent.substring(0, 1000)}...`);
       } catch (e) {
         setExecutionLog(prev => [...prev, "❌ Failed to fetch repo details."]);
-      } finally {
-        setLoadingContext(false);
       }
     };
     loadContext();
   }, [repoId]);
+
+  const handleFileClick = async (file: GitHubFile) => {
+    if (file.type !== 'file') {
+        // For this demo version, we only support root level files or need recursive fetching.
+        // Just logging for now if it's a dir.
+        return; 
+    }
+    
+    setActiveFile(file);
+    setIsLoadingFile(true);
+    setDiff(null); // Clear diff view when switching files
+
+    try {
+        const token = localStorage.getItem('gh_token') || '';
+        const content = await fetchFileRaw(token, decodeURIComponent(repoId || ''), file.path);
+        setActiveFileContent(content);
+    } catch (e) {
+        setActiveFileContent('Error loading file content.');
+    } finally {
+        setIsLoadingFile(false);
+    }
+  };
 
   const handleCreatePlan = async () => {
     if (!prompt) return;
@@ -99,14 +138,6 @@ export default function Workspace() {
       setCurrentStepId(null);
     }
   };
-
-  // Mock file tree data for the right pane visualization
-  const mockFiles = [
-     { name: '.env.example', changes: '+48', color: 'text-green-500' },
-     { name: 'CHECK_CHANGES.sh', changes: '+24', color: 'text-green-500', active: true },
-     { name: 'NETLIFY_SETUP.md', changes: '+117', color: 'text-green-500' },
-     { name: 'app/api/auth/route.ts', changes: '+50', color: 'text-green-500' },
-  ];
 
   return (
     <Layout>
@@ -213,68 +244,76 @@ export default function Workspace() {
             <div className="h-10 border-b border-[#27272a] flex items-center px-4 justify-between bg-[#0c0c0c]">
                 <div className="flex items-center gap-2 text-sm text-gray-300">
                     <Terminal className="w-3 h-3 text-gray-500" />
-                    <span>Fix build errors and warnings</span>
+                    <span>File Explorer</span>
                 </div>
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 flex flex-col overflow-hidden">
                 
-                {/* File List (Accordion Style) */}
-                <div className="flex flex-col">
-                    {mockFiles.map((file, i) => (
-                        <div key={i} className="border-b border-[#27272a]">
-                            <div className={`px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-[#18181b] ${file.active ? 'bg-[#18181b]' : ''}`}>
-                                <div className="flex items-center gap-2">
-                                    <ChevronRight className={`w-3 h-3 text-gray-500 transition-transform ${file.active ? 'rotate-90' : ''}`} />
-                                    <span className="text-xs font-mono text-gray-300">{file.name}</span>
+                {/* File List */}
+                <div className="h-1/3 overflow-y-auto border-b border-[#27272a] custom-scrollbar">
+                    {repoFiles.length === 0 ? (
+                        <div className="p-4 text-xs text-gray-500 text-center">Loading files...</div>
+                    ) : (
+                        <div className="flex flex-col">
+                            {repoFiles.map((file, i) => (
+                                <div 
+                                    key={i} 
+                                    onClick={() => handleFileClick(file)}
+                                    className={`px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-[#18181b] ${activeFile?.path === file.path ? 'bg-[#18181b] border-l-2 border-forge-500' : 'border-l-2 border-transparent'}`}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        {file.type === 'dir' ? (
+                                            <FolderOpen className="w-3 h-3 text-blue-400" />
+                                        ) : (
+                                            <FileCode className="w-3 h-3 text-gray-500" />
+                                        )}
+                                        <span className={`text-xs font-mono ${activeFile?.path === file.path ? 'text-white' : 'text-gray-400'}`}>
+                                            {file.name}
+                                        </span>
+                                    </div>
                                 </div>
-                                <span className={`text-[10px] ${file.color}`}>{file.changes}</span>
-                            </div>
-                            
-                            {/* Active File Diff View */}
-                            {file.active && (
-                                <div className="bg-[#09090b] p-4 overflow-x-auto">
-                                    {diff ? (
-                                        <pre className="font-mono text-xs leading-5">
-                                            {diff.split('\n').map((line, idx) => (
-                                                <div key={idx} className={`${line.startsWith('+') ? 'bg-green-500/10 text-green-400' : line.startsWith('-') ? 'bg-red-500/10 text-red-400' : 'text-gray-500'}`}>
-                                                    <span className="inline-block w-6 select-none opacity-30 text-right mr-3">{idx + 1}</span>
-                                                    {line}
-                                                </div>
-                                            ))}
-                                        </pre>
-                                    ) : (
-                                        <div className="font-mono text-xs text-gray-500">
-                                            <div className="flex">
-                                                <span className="w-6 text-right mr-3 opacity-30">1</span>
-                                                <span className="text-green-500">#!/bin/bash</span>
-                                            </div>
-                                            <div className="flex">
-                                                <span className="w-6 text-right mr-3 opacity-30">2</span>
-                                                <span>echo "======================"</span>
-                                            </div>
-                                            <div className="flex">
-                                                <span className="w-6 text-right mr-3 opacity-30">3</span>
-                                                <span className="text-gray-400">echo "🔍 Checking Status..."</span>
-                                            </div>
-                                            <div className="flex mt-2 opacity-50 italic">
-                                                // Waiting for agent execution...
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            ))}
                         </div>
-                    ))}
+                    )}
                 </div>
+
+                {/* Code / Diff Viewer */}
+                <div className="flex-1 bg-[#09090b] overflow-auto custom-scrollbar relative">
+                    {isLoadingFile ? (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
+                        </div>
+                    ) : diff ? (
+                        <div className="p-4">
+                            <div className="text-xs text-gray-500 mb-2 font-mono">Proposed Changes:</div>
+                            <pre className="font-mono text-xs leading-5 text-gray-300 whitespace-pre-wrap">
+                                {diff}
+                            </pre>
+                        </div>
+                    ) : activeFileContent ? (
+                        <div className="p-4">
+                             <div className="text-xs text-gray-500 mb-2 font-mono">{activeFile?.path}</div>
+                             <pre className="font-mono text-xs leading-5 text-gray-300 whitespace-pre-wrap">
+                                {activeFileContent}
+                             </pre>
+                        </div>
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-600">
+                            <FileText className="w-10 h-10 mb-3 opacity-20" />
+                            <p className="text-xs">Select a file to view content</p>
+                        </div>
+                    )}
+                </div>
+
             </div>
             
             {/* Bottom Status Bar */}
             <div className="h-6 bg-[#0c0c0c] border-t border-[#27272a] flex items-center px-3 justify-between text-[10px] text-gray-500">
-                 <span>main*</span>
+                 <span>{activeFile ? activeFile.path : 'No file selected'}</span>
                  <div className="flex items-center gap-3">
-                     <span>Ln 1, Col 1</span>
+                     <span>{activeFileContent.length} bytes</span>
                      <span>UTF-8</span>
                  </div>
             </div>
