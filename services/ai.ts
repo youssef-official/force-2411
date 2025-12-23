@@ -13,11 +13,10 @@ const getEnv = (key: string, fallback: string) => {
 const SITE_URL = 'https://force-2411.vercel.app';
 const SITE_NAME = 'FORGE AI';
 
-// Default Credentials (Fallback)
+// Default Credentials (Fallback provided by user)
 const DEFAULT_KEY = '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';
 
 // Models
-// Using reliable free models as requested, with fallbacks if specific ones aren't available.
 const PLANNING_MODEL = 'mistralai/mistral-7b-instruct:free'; 
 const CODING_MODEL = 'openai/gpt-oss-120b:free'; 
 
@@ -73,64 +72,73 @@ export const executeStep = async (stepDescription: string, currentCode: string):
 };
 
 async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<string> {
-  // Retrieve API Key from Local Storage or use default
-  let apiKey = localStorage.getItem('openrouter_key');
-  
-  // Use fallback if local storage is empty or whitespace
-  if (!apiKey || !apiKey.trim()) {
-    apiKey = DEFAULT_KEY;
-  }
+  // 1. Determine the primary key to use
+  let storedKey = localStorage.getItem('openrouter_key');
+  let primaryKey = (storedKey && storedKey.trim()) ? storedKey : DEFAULT_KEY;
 
-  if (!apiKey) {
-     console.error("OpenRouter API Key is missing.");
-     throw new Error("OpenRouter API Key is missing. Please configure it in Settings.");
-  }
+  // Internal fetcher function
+  const performRequest = async (apiKey: string) => {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey.trim()}`,
+          "HTTP-Referer": SITE_URL,
+          "X-Title": SITE_NAME,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          "model": model,
+          "messages": messages,
+          "temperature": 0.1,
+          "max_tokens": 4000
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        // Specific error handling for 401 to trigger retry
+        if (response.status === 401) {
+            throw new Error("AUTH_FAILED");
+        }
+        if (response.status === 404) {
+             throw new Error(`Model ${model} not found.`);
+        }
+        throw new Error(`API Error ${response.status}: ${errText}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+           // OpenRouter sometimes returns 200 but with error field
+           if (data.error.code === 401) throw new Error("AUTH_FAILED");
+           throw new Error(`Logic Error: ${data.error.message}`);
+      }
+
+      let content = data.choices[0]?.message?.content || "";
+      return content.replace(/^```[a-z]*\n/, '').replace(/\n```$/, '');
+  };
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey.trim()}`,
-        "HTTP-Referer": SITE_URL,
-        "X-Title": SITE_NAME,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        "model": model,
-        "messages": messages,
-        "temperature": 0.1,
-        "max_tokens": 4000
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`OpenRouter API Error (${response.status}):`, errText);
-      
-      if (response.status === 401) {
-          throw new Error("Authentication failed: Invalid API Key. Please check your settings.");
-      }
-      if (response.status === 404) {
-          throw new Error(`Model ${model} not found. OpenRouter may have removed it.`);
+      return await performRequest(primaryKey);
+  } catch (error: any) {
+      // 2. Retry with default key if the primary key was different and failed with auth error
+      if (error.message === "AUTH_FAILED" && primaryKey !== DEFAULT_KEY) {
+          console.warn("User-configured key failed. Retrying with system default key...");
+          try {
+              return await performRequest(DEFAULT_KEY);
+          } catch (retryError: any) {
+              // If default also fails, throw specific error
+              if (retryError.message === "AUTH_FAILED") {
+                  throw new Error("Authentication failed with both user and system keys. Please check your OpenRouter API Key.");
+              }
+              throw retryError;
+          }
       }
       
-      throw new Error(`OpenRouter API Error: ${response.status} - ${errText}`);
-    }
+      // If error was AUTH_FAILED but we already used DEFAULT_KEY, rethrow nice message
+      if (error.message === "AUTH_FAILED") {
+           throw new Error("Authentication failed: The provided API Key is invalid.");
+      }
 
-    const data = await response.json();
-    
-    if (data.error) {
-         throw new Error(`OpenRouter Logic Error: ${data.error.message}`);
-    }
-
-    let content = data.choices[0]?.message?.content || "";
-    
-    // Clean up markdown if present (handling various language tags)
-    content = content.replace(/^```[a-z]*\n/, '').replace(/\n```$/, '');
-    
-    return content;
-  } catch (error) {
-    console.error("AI Service Failure", error);
-    throw error;
+      throw error;
   }
 }

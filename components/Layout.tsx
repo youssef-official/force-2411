@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Github, Key, Search, Edit3, Menu, X, Settings, Save, AlertCircle } from 'lucide-react';
+import { LogOut, Github, Key, Search, Edit3, Menu, X, Settings, Save, RotateCcw } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from './Logo';
@@ -26,12 +26,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
      setIsGithubConnected(!!ghToken);
      
      const orKey = localStorage.getItem('openrouter_key');
-     if (orKey) {
-         setOpenRouterKey(orKey);
-     } else {
-         // Initialize with default key so user sees it in settings
-         setOpenRouterKey(DEFAULT_KEY);
-     }
+     // Always load what's in storage, or default if empty
+     setOpenRouterKey(orKey || DEFAULT_KEY);
 
      // Auto-close sidebar on mobile
      if (window.innerWidth < 768) {
@@ -52,6 +48,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
         setSettingsSaved(false);
         setShowSettings(false);
     }, 1000);
+  };
+  
+  const handleResetDefault = () => {
+      setOpenRouterKey(DEFAULT_KEY);
+      localStorage.removeItem('openrouter_key'); // clear storage so it uses default logic or next save
   };
 
   return (
@@ -81,7 +82,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                 </div>
                 <div className="p-6 space-y-4">
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-300">OpenRouter API Key</label>
+                        <div className="flex justify-between items-center">
+                            <label className="text-sm font-medium text-gray-300">OpenRouter API Key</label>
+                            <button onClick={handleResetDefault} className="text-xs text-forge-400 hover:underline flex items-center gap-1">
+                                <RotateCcw className="w-3 h-3" /> Reset to Default
+                            </button>
+                        </div>
                         <div className="relative">
                             <Key className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
                             <input 
