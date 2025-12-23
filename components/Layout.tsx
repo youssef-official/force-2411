@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Github, Key, Search, Edit3, Menu, X, Settings } from 'lucide-react';
+import { LogOut, Github, Key, Search, Edit3, Menu, X, Settings, Save, AlertCircle } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from './Logo';
@@ -13,11 +13,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
   const navigate = useNavigate();
   const [isGithubConnected, setIsGithubConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+  const [openRouterKey, setOpenRouterKey] = useState('');
+  const [settingsSaved, setSettingsSaved] = useState(false);
 
   useEffect(() => {
-     const token = localStorage.getItem('gh_token');
-     setIsGithubConnected(!!token);
+     const ghToken = localStorage.getItem('gh_token');
+     setIsGithubConnected(!!ghToken);
      
+     const orKey = localStorage.getItem('openrouter_key');
+     if (orKey) setOpenRouterKey(orKey);
+
      // Auto-close sidebar on mobile
      if (window.innerWidth < 768) {
        setSidebarOpen(false);
@@ -28,6 +36,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
     await supabase.auth.signOut();
     localStorage.removeItem('gh_token');
     navigate('/login');
+  };
+
+  const handleSaveSettings = () => {
+    localStorage.setItem('openrouter_key', openRouterKey.trim());
+    setSettingsSaved(true);
+    setTimeout(() => {
+        setSettingsSaved(false);
+        setShowSettings(false);
+    }, 1000);
   };
 
   return (
@@ -41,6 +58,54 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
         >
           <Menu className="w-5 h-5" />
         </button>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#18181b] border border-[#27272a] rounded-xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-4 border-b border-[#27272a] flex items-center justify-between bg-[#0c0c0c]">
+                    <h3 className="font-semibold text-white flex items-center gap-2">
+                        <Settings className="w-4 h-4" /> Settings
+                    </h3>
+                    <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-white">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-300">OpenRouter API Key</label>
+                        <div className="relative">
+                            <Key className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                            <input 
+                                type="password" 
+                                value={openRouterKey}
+                                onChange={(e) => setOpenRouterKey(e.target.value)}
+                                placeholder="sk-or-v1-..."
+                                className="w-full bg-[#09090b] border border-[#27272a] rounded-lg py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-forge-500 transition-colors"
+                            />
+                        </div>
+                        <p className="text-xs text-gray-500">
+                            Required for AI planning and coding features. 
+                            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-forge-400 hover:underline ml-1">Get a key</a>
+                        </p>
+                    </div>
+
+                    <div className="pt-2">
+                        <button 
+                            onClick={handleSaveSettings}
+                            className={`w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                                settingsSaved 
+                                ? 'bg-green-600 text-white' 
+                                : 'bg-white text-black hover:bg-gray-200'
+                            }`}
+                        >
+                            {settingsSaved ? 'Saved!' : 'Save Configuration'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
       )}
 
       {/* Sidebar */}
@@ -105,7 +170,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                     <span className="text-[10px] text-gray-500">Free Tier</span>
                 </div>
               </div>
-              <Settings className="w-4 h-4 text-gray-600 cursor-pointer hover:text-gray-300" />
+              <button 
+                  onClick={() => setShowSettings(true)}
+                  className="p-1 hover:bg-[#27272a] rounded-md transition-colors"
+              >
+                  <Settings className="w-4 h-4 text-gray-600 cursor-pointer hover:text-gray-300" />
+              </button>
            </div>
            
            <div className="pt-3 border-t border-[#27272a]/50 flex items-center justify-between text-xs text-gray-500 px-2">

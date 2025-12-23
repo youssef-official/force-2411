@@ -9,15 +9,13 @@ const getEnv = (key: string, fallback: string) => {
   }
 };
 
-// Use the provided OpenRouter API Key (Trimmed to ensure no whitespace)
-const OPENROUTER_API_KEY = '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'.trim();
-const SITE_URL = 'http://localhost:3000'; // Updated to localhost for dev compatibility
+// Application Meta
+const SITE_URL = 'http://localhost:3000';
 const SITE_NAME = 'FORGE AI';
 
-// Use reliable models available on OpenRouter Free Tier
-// Using the "exp" version which is often more widely available in the free tier
-const PLANNING_MODEL = 'google/gemini-2.0-flash-exp:free';
-const CODING_MODEL = 'google/gemini-2.0-flash-exp:free'; 
+// Models as requested by the user
+const PLANNING_MODEL = 'mistralai/devstral-2512:free';
+const CODING_MODEL = 'openai/gpt-oss-120b:free'; 
 
 export const generatePlan = async (description: string, repoContext: string): Promise<string> => {
   const systemPrompt = `You are a Principal Software Architect.
@@ -71,16 +69,19 @@ export const executeStep = async (stepDescription: string, currentCode: string):
 };
 
 async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<string> {
-  if (!OPENROUTER_API_KEY) {
+  // Retrieve API Key from Local Storage dynamically
+  const apiKey = localStorage.getItem('openrouter_key');
+
+  if (!apiKey) {
      console.error("OpenRouter API Key is missing.");
-     throw new Error("OpenRouter API Key is missing.");
+     throw new Error("OpenRouter API Key is missing. Please configure it in Settings.");
   }
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${apiKey.trim()}`,
         "HTTP-Referer": SITE_URL,
         "X-Title": SITE_NAME,
         "Content-Type": "application/json"
@@ -88,7 +89,7 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
       body: JSON.stringify({
         "model": model,
         "messages": messages,
-        "temperature": 0.1, // Lower temperature for code stability
+        "temperature": 0.1,
         "max_tokens": 4000
       })
     });
@@ -97,9 +98,12 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
       const errText = await response.text();
       console.error(`OpenRouter API Error (${response.status}):`, errText);
       
-      // Handle specific 401
       if (response.status === 401) {
-          throw new Error("Authentication failed: Invalid API Key or Unauthorized.");
+          throw new Error("Authentication failed: Invalid API Key. Please check your settings.");
+      }
+      if (response.status === 404) {
+          // Fallback guidance if model doesn't exist
+          throw new Error(`Model ${model} not found or unavailable. Try changing models in source.`);
       }
       
       throw new Error(`OpenRouter API Error: ${response.status} - ${errText}`);
