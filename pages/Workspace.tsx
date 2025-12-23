@@ -17,8 +17,32 @@ import {
   FolderOpen,
   FileText,
   Save,
-  GitCommit
+  GitCommit,
+  AlertTriangle
 } from 'lucide-react';
+
+// Helper to extract JSON from potentially messy AI output
+const extractJson = (text: string): any => {
+    try {
+        // First try direct parse
+        return JSON.parse(text);
+    } catch (e) {
+        // Try regex to find JSON block
+        const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || 
+                          text.match(/```\n([\s\S]*?)\n```/) ||
+                          text.match(/\{[\s\S]*\}/); // Greedy brace match
+        
+        if (jsonMatch) {
+            try {
+                const potentialJson = jsonMatch[1] || jsonMatch[0];
+                return JSON.parse(potentialJson);
+            } catch (e2) {
+                throw new Error("Failed to parse extracted JSON");
+            }
+        }
+        throw new Error("No JSON found in response");
+    }
+};
 
 export default function Workspace() {
   const { repoId } = useParams();
@@ -36,6 +60,7 @@ export default function Workspace() {
   const [activeFileSha, setActiveFileSha] = useState<string>('');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Diff/New Content State
   const [proposedContent, setProposedContent] = useState<string | null>(null);
@@ -92,6 +117,7 @@ export default function Workspace() {
     setActiveFile(file);
     setIsLoadingFile(true);
     setProposedContent(null);
+    setErrorMsg(null);
 
     try {
         const token = localStorage.getItem('gh_token') || '';
@@ -110,18 +136,19 @@ export default function Workspace() {
   const handleCreatePlan = async () => {
     if (!prompt) return;
     setIsAnalyzing(true);
+    setErrorMsg(null);
     try {
-      const jsonStr = await generatePlan(prompt, repoContext);
-      // Attempt to parse JSON even if messy
-      const cleanJson = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-      const planData = JSON.parse(cleanJson);
+      const rawResponse = await generatePlan(prompt, repoContext);
+      const planData = extractJson(rawResponse);
+      
+      if (!planData.steps || !Array.isArray(planData.steps)) {
+          throw new Error("Invalid plan format returned by AI");
+      }
+
       setPlan(planData.steps.map((s: any) => ({ ...s, status: 'PENDING' })));
-    } catch (e) {
+    } catch (e: any) {
       console.error("Plan generation failed", e);
-      // Fallback plan
-      setPlan([
-        { id: '1', title: 'Manual Review', description: 'Review code manually due to AI error.', file_path: 'README.md', operation: 'UPDATE', status: 'PENDING' },
-      ]);
+      setErrorMsg(e.message || "Failed to generate plan. Please check your API settings or try again.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -129,6 +156,7 @@ export default function Workspace() {
 
   const handleExecute = async (step: PlanStep) => {
     setCurrentStepId(step.id);
+    setErrorMsg(null);
     setPlan(prev => prev?.map(s => s.id === step.id ? { ...s, status: 'IN_PROGRESS' } : s) || null);
     
     // Switch to the relevant file if found in list
@@ -150,14 +178,21 @@ export default function Workspace() {
         } finally {
             setIsLoadingFile(false);
         }
+    } else {
+        // If file doesn't exist (new file), we start with empty context
+        currentCode = "";
+        setActiveFile({ name: step.file_path, path: step.file_path, type: 'file', sha: '' });
+        setActiveFileContent("");
+        setActiveFileSha("");
     }
 
     try {
       const newCode = await executeStep(step.description, currentCode);
       setProposedContent(newCode);
       setPlan(prev => prev?.map(s => s.id === step.id ? { ...s, status: 'COMPLETED' } : s) || null);
-    } catch (e) {
+    } catch (e: any) {
       setPlan(prev => prev?.map(s => s.id === step.id ? { ...s, status: 'FAILED' } : s) || null);
+      setErrorMsg(`Execution failed: ${e.message}`);
     } finally {
       setCurrentStepId(null);
     }
@@ -182,11 +217,12 @@ export default function Workspace() {
         setActiveFileContent(proposedContent);
         setProposedContent(null);
         // CRITICAL: Update the SHA to the new one returned by GitHub
-        // Otherwise the next commit will fail with 409 Conflict
         if (result.newSha) {
             setActiveFileSha(result.newSha);
         }
         alert("Changes committed successfully!");
+        // Refresh file list in case it was a new file
+        // (Optional: simplified for now)
     } else {
         alert("Failed to commit changes. Check permissions or try refreshing.");
     }
@@ -206,6 +242,12 @@ export default function Workspace() {
                   <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50">
                      <Bot className="w-12 h-12 mb-4 text-gray-600" />
                      <p className="text-gray-400 text-sm">Select a repository and describe your task.</p>
+                     {errorMsg && (
+                         <div className="mt-4 p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-red-400 text-xs flex items-center gap-2 max-w-[80%]">
+                             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                             {errorMsg}
+                         </div>
+                     )}
                   </div>
               ) : (
                   <div className="space-y-6 pb-20">
@@ -227,9 +269,12 @@ export default function Workspace() {
                                    <div key={step.id} className="p-3 border-b border-[#27272a] last:border-0 flex items-center justify-between hover:bg-[#18181b] transition-colors group">
                                        <div className="flex items-center gap-3 overflow-hidden">
                                            <div className={`flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold
-                                               ${step.status === 'COMPLETED' ? 'bg-green-900/30 border-green-500/50 text-green-500' : 'border-gray-700 text-gray-500'}
+                                               ${step.status === 'COMPLETED' ? 'bg-green-900/30 border-green-500/50 text-green-500' : 
+                                                 step.status === 'FAILED' ? 'bg-red-900/30 border-red-500/50 text-red-500' :
+                                                 'border-gray-700 text-gray-500'}
                                            `}>
-                                               {step.status === 'COMPLETED' ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
+                                               {step.status === 'COMPLETED' ? <CheckCircle2 className="w-3 h-3" /> : 
+                                                step.status === 'FAILED' ? <AlertTriangle className="w-3 h-3" /> : idx + 1}
                                            </div>
                                            <div className="min-w-0">
                                                <div className="text-sm text-gray-200 truncate font-medium">{step.title}</div>
@@ -248,6 +293,11 @@ export default function Workspace() {
                                    </div>
                                ))}
                            </div>
+                           {errorMsg && (
+                               <div className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                                   <AlertTriangle className="w-3 h-3" /> {errorMsg}
+                               </div>
+                           )}
                       </div>
                   </div>
               )}

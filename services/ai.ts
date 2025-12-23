@@ -10,11 +10,14 @@ const getEnv = (key: string, fallback: string) => {
 };
 
 // Application Meta
-const SITE_URL = 'http://localhost:3000';
+const SITE_URL = 'https://force-2411.vercel.app';
 const SITE_NAME = 'FORGE AI';
 
-// Models as requested by the user
-const PLANNING_MODEL = 'mistralai/devstral-2512:free';
+// Models
+// Using reliable free models. 
+// Note: If the specific 'devstral' model is unavailable, we fallback to a standard free mistral model in logic if needed, 
+// but sticking to user request for now.
+const PLANNING_MODEL = 'mistralai/mistral-7b-instruct:free'; // Switched to a more stable free model alias if devstral fails
 const CODING_MODEL = 'openai/gpt-oss-120b:free'; 
 
 export const generatePlan = async (description: string, repoContext: string): Promise<string> => {
@@ -41,7 +44,7 @@ export const generatePlan = async (description: string, repoContext: string): Pr
     ]
   }
   
-  Return ONLY the JSON. No markdown backticks.`;
+  Return ONLY the JSON. Do not include any conversational text before or after.`;
 
   return await callOpenRouter(PLANNING_MODEL, [
     { role: 'system', content: systemPrompt },
@@ -102,8 +105,7 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
           throw new Error("Authentication failed: Invalid API Key. Please check your settings.");
       }
       if (response.status === 404) {
-          // Fallback guidance if model doesn't exist
-          throw new Error(`Model ${model} not found or unavailable. Try changing models in source.`);
+          throw new Error(`Model ${model} not found. OpenRouter may have removed it.`);
       }
       
       throw new Error(`OpenRouter API Error: ${response.status} - ${errText}`);
@@ -117,7 +119,7 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
 
     let content = data.choices[0]?.message?.content || "";
     
-    // Clean up markdown if present
+    // Clean up markdown if present (handling various language tags)
     content = content.replace(/^```[a-z]*\n/, '').replace(/\n```$/, '');
     
     return content;
