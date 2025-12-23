@@ -9,15 +9,15 @@ const getEnv = (key: string, fallback: string) => {
   }
 };
 
-// Use the provided OpenRouter API Key
-const OPENROUTER_API_KEY = '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';
-const SITE_URL = 'https://forge.ai';
+// Use the provided OpenRouter API Key (Trimmed to ensure no whitespace)
+const OPENROUTER_API_KEY = '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'.trim();
+const SITE_URL = 'http://localhost:3000'; // Updated to localhost for dev compatibility
 const SITE_NAME = 'FORGE AI';
 
 // Use reliable models available on OpenRouter Free Tier
-// Fallback to Gemini 2.0 Flash Lite Preview which is usually free/cheap and fast
-const PLANNING_MODEL = 'google/gemini-2.0-flash-lite-preview-02-05:free';
-const CODING_MODEL = 'google/gemini-2.0-flash-lite-preview-02-05:free'; 
+// Using the "exp" version which is often more widely available in the free tier
+const PLANNING_MODEL = 'google/gemini-2.0-flash-exp:free';
+const CODING_MODEL = 'google/gemini-2.0-flash-exp:free'; 
 
 export const generatePlan = async (description: string, repoContext: string): Promise<string> => {
   const systemPrompt = `You are a Principal Software Architect.
@@ -94,12 +94,23 @@ async function callOpenRouter(model: string, messages: ChatMessage[]): Promise<s
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error("AI Error:", err);
-      throw new Error(`OpenRouter API Error: ${response.status}`);
+      const errText = await response.text();
+      console.error(`OpenRouter API Error (${response.status}):`, errText);
+      
+      // Handle specific 401
+      if (response.status === 401) {
+          throw new Error("Authentication failed: Invalid API Key or Unauthorized.");
+      }
+      
+      throw new Error(`OpenRouter API Error: ${response.status} - ${errText}`);
     }
 
     const data = await response.json();
+    
+    if (data.error) {
+         throw new Error(`OpenRouter Logic Error: ${data.error.message}`);
+    }
+
     let content = data.choices[0]?.message?.content || "";
     
     // Clean up markdown if present

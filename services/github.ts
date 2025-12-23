@@ -67,21 +67,30 @@ export const fetchFileRaw = async (token: string, fullName: string, path: string
     },
   });
   
-  if (!res.ok) throw new Error('Failed to fetch file');
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
   
-  // Check if response is actually JSON
+  // Robust check for JSON content
   const contentType = res.headers.get('content-type');
   if (contentType && contentType.includes('application/json')) {
       const data = await res.json();
-      // Content is base64 encoded in the JSON response
+      
+      // If content is base64 encoded (standard for files)
       if (data.content && data.encoding === 'base64') {
-          const content = atob(data.content.replace(/\n/g, ''));
+          // Fix for newlines in base64 string
+          const cleanContent = data.content.replace(/\n/g, '');
+          const content = atob(cleanContent);
           return { content, sha: data.sha };
       }
-      // Handle edge case where API returns something else
-      throw new Error("Invalid file format from GitHub");
+      
+      // If for some reason content is not encoded or empty
+      return { content: '', sha: data.sha || '' };
   } else {
-      throw new Error("GitHub API returned non-JSON response");
+      // Fallback: If GitHub returns raw text (shouldn't happen with our Accept header, but safe to handle)
+      console.warn("GitHub API returned non-JSON. Falling back to text.");
+      const text = await res.text();
+      // We don't get SHA in this case easily, so we might need to fetch metadata separately if this happens
+      // But for read-only context, this is acceptable
+      return { content: text, sha: '' };
   }
 };
 
@@ -94,8 +103,13 @@ export const commitFile = async (
   sha?: string
 ): Promise<{ success: boolean; newSha?: string }> => {
   try {
-    // Convert content to base64
-    const contentBase64 = btoa(unescape(encodeURIComponent(content))); // utf-8 safe base64
+    // Convert content to base64, handling UTF-8 characters correctly
+    const contentBase64 = btoa(
+      encodeURIComponent(content).replace(/%([0-9A-F]{2})/g,
+        function toSolidBytes(match, p1) {
+            return String.fromCharCode(parseInt(p1, 16));
+        })
+    );
 
     const body: any = {
       message: message,
@@ -123,10 +137,9 @@ export const commitFile = async (
     }
 
     const data = await res.json();
-    // Return the new SHA so the frontend can stay in sync
     return { success: true, newSha: data.content?.sha };
   } catch (e) {
-    console.error(e);
+    console.error("Commit Error:", e);
     return { success: false };
   }
 };
