@@ -1,0 +1,162 @@
+-- Enable UUID extension
+create extension if not exists "uuid-ossp";
+
+-- PROFILES (extends auth.users)
+create table public.profiles (
+  id uuid references auth.users on delete cascade not null primary key,
+  email text,
+  full_name text,
+  avatar_url text,
+  tier text default 'FREE' check (tier in ('FREE', 'PRO')),
+  daily_requests_count int default 0,
+  last_request_date date default current_date,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- REPOSITORIES
+create table public.repositories (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  name text not null,
+  full_name text not null,
+  description text,
+  url text not null,
+  language text,
+  default_branch text default 'main',
+  stars int default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- PLANS (AI generated plans)
+create table public.plans (
+  id uuid default uuid_generate_v4() primary key,
+  repo_id uuid references public.repositories(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  title text not null,
+  description text,
+  status text default 'DRAFT' check (status in ('DRAFT', 'APPROVED', 'COMPLETED', 'ARCHIVED')),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- STEPS (Tasks within a plan)
+create table public.steps (
+  id uuid default uuid_generate_v4() primary key,
+  plan_id uuid references public.plans(id) on delete cascade not null,
+  title text not null,
+  description text,
+  file_path text,
+  operation text check (operation in ('CREATE', 'UPDATE', 'DELETE')),
+  code_snippet text,
+  status text default 'PENDING' check (status in ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED')),
+  result_diff text,
+  execution_log text,
+  order_index int default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- USAGE LOGS (For rate limiting)
+create table public.usage_logs (
+  id uuid default uuid_generate_v4() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  action_type text not null, -- 'ANALYSIS', 'EXECUTION'
+  tokens_used int default 0,
+  model_used text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- ROW LEVEL SECURITY (RLS)
+alter table public.profiles enable row level security;
+alter table public.repositories enable row level security;
+alter table public.plans enable row level security;
+alter table public.steps enable row level security;
+alter table public.usage_logs enable row level security;
+
+-- POLICIES
+create policy "Users can view own profile" on public.profiles
+  for select using (auth.uid() = id);
+
+create policy "Users can update own profile" on public.profiles
+  for update using (auth.uid() = id);
+
+create policy "Users can view own repos" on public.repositories
+  for select using (auth.uid() = user_id);
+
+create policy "Users can insert own repos" on public.repositories
+  for insert with check (auth.uid() = user_id);
+
+create policy "Users can delete own repos" on public.repositories
+  for delete using (auth.uid() = user_id);
+
+create policy "Users can view own plans" on public.plans
+  for select using (auth.uid() = user_id);
+
+create policy "Users can insert own plans" on public.plans
+  for insert with check (auth.uid() = user_id);
+
+create policy "Users can update own plans" on public.plans
+  for update using (auth.uid() = user_id);
+
+create policy "Users can view steps of own plans" on public.steps
+  for select using (
+    exists (
+      select 1 from public.plans
+      where plans.id = steps.plan_id
+      and plans.user_id = auth.uid()
+    )
+  );
+
+create policy "Users can insert steps to own plans" on public.steps
+  for insert with check (
+    exists (
+      select 1 from public.plans
+      where plans.id = plan_id
+      and plans.user_id = auth.uid()
+    )
+  );
+
+create policy "Users can update steps of own plans" on public.steps
+  for update using (
+    exists (
+      select 1 from public.plans
+      where plans.id = steps.plan_id
+      and plans.user_id = auth.uid()
+    )
+  );
+
+-- FUNCTIONS & TRIGGERS
+
+-- Handle new user signup
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, full_name, avatar_url)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'avatar_url'
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger for new user
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- Seed some initial data helper function (optional)
+create or replace function public.seed_default_repo()
+returns void as $$
+declare
+  uid uuid;
+begin
+  uid := auth.uid();
+  if uid is not null then
+    insert into public.repositories (user_id, name, full_name, description, url, language, stars)
+    values (uid, 'demo-repo', 'user/demo-repo', 'A demo repository seeded by system', 'https://github.com/user/demo-repo', 'TypeScript', 10);
+  end if;
+end;
+$$ language plpgsql security definer;

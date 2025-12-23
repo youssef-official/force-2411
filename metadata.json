@@ -1,0 +1,5 @@
+{
+  "name": "FORGE - AI Engineering Framework",
+  "description": "A production-grade AI engineering framework for analyzing, planning, and executing code changes via OpenRouter and GitHub.",
+  "requestFramePermissions": []
+}
