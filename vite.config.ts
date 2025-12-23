@@ -10,8 +10,8 @@ export default defineConfig({
   server: {
     port: 3000
   },
-  // Polyfill process.env for the existing code that relies on it
   define: {
-    'process.env': {}
+    // robust polyfill for process.env to prevent runtime crashes
+    'process.env': {} 
   }
 });
